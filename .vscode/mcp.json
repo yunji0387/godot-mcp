@@ -1,0 +1,26 @@
+{
+  "servers": {
+    "godot-mcp": {
+      "type": "stdio",
+      "command": "uv",
+      "args": [
+        "--directory",
+        "${workspaceFolder}",
+        "run",
+        "python",
+        "-m",
+        "godot_mcp.server"
+      ],
+      "env": {
+        "GODOT_MCP_GODOT_PATH": "${input:godot_path}"
+      }
+    }
+  },
+  "inputs": [
+    {
+      "id": "godot_path",
+      "type": "promptString",
+      "description": "Full path to the Godot executable (leave blank to auto-detect 'godot'/'godot4' on PATH)"
+    }
+  ]
+}

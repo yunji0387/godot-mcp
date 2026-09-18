@@ -1,0 +1,16 @@
+[project]
+name = "godot-mcp"
+version = "0.1.0"
+description = "MCP server for inspecting, editing, and running Godot projects"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "mcp[cli]<2",
+]
+
+[project.scripts]
+godot-mcp = "godot_mcp.server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
