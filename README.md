@@ -10,7 +10,7 @@ projects.
 |---|---|
 | `get_godot_version` | Return the installed Godot engine version. |
 | `list_projects` | Recursively find Godot projects under a directory. |
-| `get_project_info` | Read a project's `project.godot` file. |
+| `get_project_info` | Return project metadata and file counts. |
 | `list_scenes` | List `.tscn` files in a project. |
 | `list_scripts` | List `.gd` files in a project. |
 | `read_script` | Read a GDScript file's contents. |
@@ -19,12 +19,20 @@ projects.
 | `run_project` | Launch the project (optionally headless) as a background process. |
 | `stop_project` | Terminate the running project process. |
 | `get_debug_output` | Read captured stdout/stderr from the running process. |
+| `launch_editor` | Launch the Godot editor for a project. |
+| `create_scene` | Create a scene with a built-in Godot root node. |
+| `add_node` | Add a built-in node to an existing scene. |
+| `load_sprite` | Set a texture on a sprite-compatible node. |
+| `export_mesh_library` | Export scene meshes as a `MeshLibrary`. |
+| `save_scene` | Save a scene, optionally to a new path. |
+| `get_uid` | Read a resource's `.uid` sidecar. |
+| `update_project_uids` | Resave project resources to update UIDs. |
 
 ## Requirements
 
 - [uv](https://docs.astral.sh/uv/) (already installed)
 - The Godot executable. The server looks for it in this order:
-  1. The `GODOT_MCP_GODOT_PATH` environment variable (full path to the exe).
+  1. The `GODOT_MCP_GODOT_PATH` or `GODOT_PATH` environment variable (full path to the exe).
   2. `godot`, `godot4`, or `Godot` on your `PATH`.
   3. A few common Windows filenames (e.g. `Godot_v4.5-stable_win64.exe`) on
      your `PATH`.

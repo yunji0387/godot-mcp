@@ -7,6 +7,7 @@ or the Codex CLI. See README.md for client configuration examples.
 from __future__ import annotations
 
 import os
+import json
 import re
 import shutil
 import subprocess
@@ -31,9 +32,11 @@ _CANDIDATE_NAMES = [
     "Godot_v4.3-stable_win64.exe",
 ]
 
+_OPERATIONS_SCRIPT = Path(__file__).with_name("scripts") / "godot_operations.gd"
+
 
 def find_godot_executable() -> Optional[str]:
-    env_path = os.environ.get("GODOT_MCP_GODOT_PATH")
+    env_path = os.environ.get("GODOT_MCP_GODOT_PATH") or os.environ.get("GODOT_PATH")
     if env_path and Path(env_path).exists():
         return env_path
     for name in _CANDIDATE_NAMES:
@@ -86,6 +89,42 @@ def _resolve_within(root: Path, relative_or_absolute: str) -> Path:
     return resolved
 
 
+def _validate_class_name(name: str) -> str:
+    if not name or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
+        raise ValueError("Godot class names must be simple identifiers")
+    return name
+
+
+def _run_operation(operation: str, project_path: str, params: dict) -> str:
+    exe = find_godot_executable()
+    if not exe:
+        raise ValueError(
+            "Godot executable not found. Set GODOT_MCP_GODOT_PATH or GODOT_PATH."
+        )
+    root = _resolve_project_dir(project_path)
+    if not _OPERATIONS_SCRIPT.exists():
+        raise RuntimeError(f"Bundled operations script is missing: {_OPERATIONS_SCRIPT}")
+    result = subprocess.run(
+        [
+            exe,
+            "--headless",
+            "--path",
+            str(root),
+            "--script",
+            str(_OPERATIONS_SCRIPT),
+            operation,
+            json.dumps(params),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    output = "\n".join(part for part in (result.stdout, result.stderr) if part).strip()
+    if result.returncode != 0:
+        raise RuntimeError(output or f"Godot operation failed: {operation}")
+    return output
+
+
 # ---------------------------------------------------------------------------
 # Tools
 # ---------------------------------------------------------------------------
@@ -115,9 +154,40 @@ def list_projects(search_path: str) -> list[str]:
 
 @mcp.tool()
 def get_project_info(project_path: str) -> str:
-    """Return the raw contents of project.godot for the given project directory."""
+    """Return project metadata and counts for scenes, scripts, assets, and other files."""
     root = _resolve_project_dir(project_path)
-    return (root / "project.godot").read_text(encoding="utf-8")
+    project_text = (root / "project.godot").read_text(encoding="utf-8")
+    name_match = re.search(r'config/name="([^"]+)"', project_text)
+    counts = {"scenes": 0, "scripts": 0, "assets": 0, "other": 0}
+    asset_extensions = {"png", "jpg", "jpeg", "webp", "svg", "ttf", "wav", "mp3", "ogg"}
+    for path in root.rglob("*"):
+        if not path.is_file() or any(part.startswith(".") for part in path.relative_to(root).parts):
+            continue
+        extension = path.suffix.lower().lstrip(".")
+        if extension == "tscn":
+            counts["scenes"] += 1
+        elif extension in {"gd", "gdscript", "cs"}:
+            counts["scripts"] += 1
+        elif extension in asset_extensions:
+            counts["assets"] += 1
+        else:
+            counts["other"] += 1
+    return json.dumps({
+        "name": name_match.group(1) if name_match else root.name,
+        "path": str(root),
+        "structure": counts,
+    }, indent=2)
+
+
+@mcp.tool()
+def launch_editor(project_path: str) -> str:
+    """Launch the Godot editor for a project."""
+    exe = find_godot_executable()
+    root = _resolve_project_dir(project_path)
+    if not exe:
+        raise ValueError("Godot executable not found. Set GODOT_MCP_GODOT_PATH or GODOT_PATH.")
+    subprocess.Popen([exe, "-e", "--path", str(root)])
+    return f"Godot editor launched for project {root}"
 
 
 @mcp.tool()
@@ -242,6 +312,81 @@ def get_debug_output(clear: bool = False) -> str:
         if clear:
             _output_lines.clear()
     return output or "(no output captured)"
+
+
+@mcp.tool()
+def create_scene(project_path: str, scene_path: str, root_node_type: str = "Node2D") -> str:
+    """Create a scene with a built-in Godot node as its root."""
+    root = _resolve_project_dir(project_path)
+    _resolve_within(root, scene_path)
+    _validate_class_name(root_node_type)
+    return _run_operation("create_scene", project_path, {
+        "scenePath": scene_path, "rootNodeType": root_node_type,
+    })
+
+
+@mcp.tool()
+def add_node(project_path: str, scene_path: str, node_type: str, node_name: str,
+             parent_node_path: str = "root", properties: Optional[dict] = None) -> str:
+    """Add a built-in Godot node to an existing scene."""
+    root = _resolve_project_dir(project_path)
+    _validate_class_name(node_type)
+    _resolve_within(root, scene_path)
+    return _run_operation("add_node", project_path, {
+        "scenePath": scene_path, "nodeType": node_type, "nodeName": node_name,
+        "parentNodePath": parent_node_path, "properties": properties or {},
+    })
+
+
+@mcp.tool()
+def load_sprite(project_path: str, scene_path: str, node_path: str, texture_path: str) -> str:
+    """Set a texture on a Sprite2D, Sprite3D, or TextureRect node."""
+    root = _resolve_project_dir(project_path)
+    _resolve_within(root, scene_path)
+    _resolve_within(root, texture_path)
+    return _run_operation("load_sprite", project_path, {
+        "scenePath": scene_path, "nodePath": node_path, "texturePath": texture_path,
+    })
+
+
+@mcp.tool()
+def export_mesh_library(project_path: str, scene_path: str, output_path: str,
+                        mesh_item_names: Optional[list[str]] = None) -> str:
+    """Export meshes in a scene as a MeshLibrary resource."""
+    root = _resolve_project_dir(project_path)
+    _resolve_within(root, scene_path)
+    _resolve_within(root, output_path)
+    return _run_operation("export_mesh_library", project_path, {
+        "scenePath": scene_path, "outputPath": output_path,
+        "meshItemNames": mesh_item_names or [],
+    })
+
+
+@mcp.tool()
+def save_scene(project_path: str, scene_path: str, new_path: Optional[str] = None) -> str:
+    """Save a scene, optionally to a new project-relative path."""
+    root = _resolve_project_dir(project_path)
+    _resolve_within(root, scene_path)
+    if new_path:
+        _resolve_within(root, new_path)
+    params = {"scenePath": scene_path}
+    if new_path:
+        params["newPath"] = new_path
+    return _run_operation("save_scene", project_path, params)
+
+
+@mcp.tool()
+def get_uid(project_path: str, file_path: str) -> str:
+    """Read the .uid sidecar for a project resource."""
+    root = _resolve_project_dir(project_path)
+    _resolve_within(root, file_path)
+    return _run_operation("get_uid", project_path, {"filePath": file_path})
+
+
+@mcp.tool()
+def update_project_uids(project_path: str) -> str:
+    """Resave project resources so Godot can update UID references."""
+    return _run_operation("resave_resources", project_path, {"projectPath": ""})
 
 
 def main() -> None:
